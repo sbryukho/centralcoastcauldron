@@ -40,11 +40,11 @@ def post_deliver_barrels(barrels_delivered: list[Barrel], order_id: int):
     after_gold = theGold - exchangePrice
 
     with db.engine.begin() as connection:
-        result = connection.execute(sqlalchemy.text("UPDATE global_inventory SET gold = " + after_gold))
+        result = connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET gold = {after_gold}"))
 
     newML = ml_per * amt
     with db.engine.begin() as connection:
-        result = connection.execute(sqlalchemy.text("UPDATE global_inventory SET num_green_ml = " + newML))
+        result = connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_green_ml = {newML}"))
 
 
     return "OK"
