@@ -26,7 +26,7 @@ def post_deliver_bottles(potions_delivered: list[PotionInventory], order_id: int
     print(f"potions delievered: {potions_delivered} order_id: {order_id}")
     num_green_potions_delivered = 0
 
-    for i in range(potions_delivered):
+    for i in range(len(potions_delivered)):
         if potions_delivered[i].potion_type == [0, 100, 0, 0]:
             num_green_potions_delivered += 1
 
