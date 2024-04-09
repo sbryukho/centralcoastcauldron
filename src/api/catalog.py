@@ -22,7 +22,8 @@ def get_catalog():
         # the current number of green potions in inventory
         result = connection.execute(sqlalchemy.text("SELECT num_green_potions FROM global_inventory"))
         num_green_potions = result.scalar() or 0
-
+        for row in result:
+            print(row)    
         
         
 
