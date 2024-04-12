@@ -20,8 +20,8 @@ def get_catalog():
 
     with db.engine.begin() as connection:
         # the current number of green potions in inventory
-        result = connection.execute(sqlalchemy.text("SELECT num_green_potions FROM global_inventory"))
-        num_green_potions = result.scalar() or 0
+        result = connection.execute(sqlalchemy.text("SELECT * FROM global_inventory"))
+        
         for row in result:
             print(row)    
         
@@ -29,10 +29,10 @@ def get_catalog():
 
     catalog = [
         {
-            "sku": green_potion_sku,
+            "sku": "GREEN_POTION_0",
             "name": "green potion",
-            "quantity": num_green_potions,
-            "price": 50,
+            "quantity": 1,
+            "price": 5,
             "potion_type": [0, 100, 0, 0], 
         }
     ]
