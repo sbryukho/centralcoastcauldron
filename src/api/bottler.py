@@ -70,6 +70,9 @@ def get_bottle_plan():
     potions = mls // 100
     print(mls)
     print(potions)
+
+    if potions == 0:
+        return []
     return [
             {
                 "potion_type": [0, 100, 0, 0],
