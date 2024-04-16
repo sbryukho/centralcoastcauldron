@@ -10,8 +10,8 @@ router = APIRouter(
     tags=["cart"],
     dependencies=[Depends(auth.get_api_key)],
 )
-# with db.engine.begin() as connection:
-#         result = connection.execute(sqlalchemy.text("SELECT num_green_potions, gold FROM global_inventory"))
+
+
 
 class search_sort_options(str, Enum):
     customer_name = "customer_name"
@@ -71,6 +71,9 @@ def search_orders(
     }
 
 
+nextID = 1
+carts = {}
+
 class Customer(BaseModel):
     customer_name: str
     character_class: str
@@ -87,20 +90,39 @@ def post_visits(visit_id: int, customers: list[Customer]):
 
 
 
-# GOOD
+# GOOD return unique id pn cart. global vvariable o=increment every call.
 @router.post("/")
 def create_cart(new_cart: Customer):
     """ """
-    return {"cart_id": 1}
+    global nextID, carts
+
+
+    cart = {}
+    id = nextID
+
+    carts[nextID] = cart
+    nextID += 1
+    return {"cart_id": id}
 
 
 class CartItem(BaseModel):
     quantity: int
 
-# GOOD
+
+prices = {"GREEN_POTION_0": 5,
+          "RED_POTION_0": 5,
+          "BLUE_POTION_0": 5}
+# GOOD make dictionary and look up for this cart, record values that its buying 
 @router.post("/{cart_id}/items/{item_sku}")
 def set_item_quantity(cart_id: int, item_sku: str, cart_item: CartItem):
     """ """
+    if item_sku not in prices.keys():
+        print("ERROR")
+
+    global carts
+    cart = carts[cart_id]
+    cart[item_sku] = cart_item.quantity
+
 
     return "OK"
 
@@ -113,11 +135,46 @@ class CartCheckout(BaseModel):
 @router.post("/{cart_id}/checkout")
 def checkout(cart_id: int, cart_checkout: CartCheckout):
     """ """
-    with db.engine.begin() as connection:
-        result = connection.execute(sqlalchemy.text("UPDATE global_inventory SET num_green_potions = num_green_potions -1"))
+    global carts
+    cart = carts[cart_id]
+
+    bought = [0,0,0,0]
+    cost = 0
+
+    for sku, num in cart.items():
+        if "RED" in sku:
+            bought[0] += num
+
+        elif "GREEN" in sku:
+            bought[1] += num
+
+        elif "BLUE" in sku:
+            bought[2] += num
+
+        cost += prices[sku] * num
+
 
     with db.engine.begin() as connection:
-        result = connection.execute(sqlalchemy.text("UPDATE global_inventory SET gold = gold + 50 "))
-    
+        result = connection.execute(sqlalchemy.text("SELECT * FROM global_inventory"))
+        for row in result:
+            potions = [row.num_red_potions, row.num_green_potions, row.num_blue_potions]
+            gold = row.gold
 
-    return {"total_potions_bought": 1, "total_gold_paid": 50}
+        for i in range(3):
+            if potions[i] < bought[i]:
+                return {}
+            
+        names = ["num_red_potions", "num_green_potions", "num_blue_potions"]
+
+        for i in range(3):
+            potions[i] -= bought[i]
+            connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET {names[i]} = {potions[i]}"))
+
+
+
+        gold += cost
+        connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET gold = {gold}"))
+
+    return {"total_potions_bought": sum(bought), "total_gold_paid": cost}
+
+
