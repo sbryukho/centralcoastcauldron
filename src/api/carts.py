@@ -178,3 +178,4 @@ def checkout(cart_id: int, cart_checkout: CartCheckout):
     return {"total_potions_bought": sum(bought), "total_gold_paid": cost}
 
 
+

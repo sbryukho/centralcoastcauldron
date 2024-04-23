@@ -4,7 +4,7 @@ from src import database as db
 
 router = APIRouter()
 
-
+# professor's v3 catalog code in my camera roll
 
 @router.get("/catalog/", tags=["catalog"])
 def get_catalog():
@@ -23,7 +23,7 @@ def get_catalog():
     potion_names = ["red potion", "green potion", "blue potion"]
     potion_type = [[100,0,0,0], [0,100,0,0], [0,0,100,0]]
     for i in range(3):
-        if num_potions[i] >= 0:
+        if num_potions[i] > 0:
             catalog.append({
                     "sku": potion_skus[i],
                     "name": potion_names[i],

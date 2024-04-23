@@ -37,8 +37,6 @@ def post_deliver_barrels(barrels_delivered: list[Barrel], order_id: int):
             if b.potion_type[i] >0:
                 mlAdd[i] += b.ml_per_barrel * b.quantity
 
-
-
     exchangePrice = barrels_delivered[0].price
     ml_per = barrels_delivered[0].ml_per_barrel
     amt = barrels_delivered[0].quantity
@@ -53,7 +51,6 @@ def post_deliver_barrels(barrels_delivered: list[Barrel], order_id: int):
         if gold<cost:
             return "error, cost isnt correct, failed"
         
-
         #SUB GOLD
         gold -= cost
         connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET gold = {gold}"))
@@ -61,16 +58,16 @@ def post_deliver_barrels(barrels_delivered: list[Barrel], order_id: int):
         #red ml
         ml[0] = ml[0] + mlAdd[0]
         connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_red_ml = {ml[0]}"))
-
+        print(ml[0])
         #green ml
         ml[1] = ml[1] + mlAdd[1]
-        connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_red_ml = {ml[1]}"))
+        connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_green_ml = {ml[1]}"))
+        print(ml[1])
 
         #blue ml
         ml[2] = ml[2] + mlAdd[2]
-        connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_red_ml = {ml[2]}"))
-
-
+        connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_blue_ml = {ml[2]}"))
+        print(ml[2])
     return "OK"
 
 # Gets called once a day
