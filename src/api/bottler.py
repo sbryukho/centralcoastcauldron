@@ -102,7 +102,7 @@ def get_bottle_plan():
         for color in db_delta:
             ml.append(color[0])       
 
-        potions = connection.execute(sqlalchemy.text("SELECT red, green, blue, dark FROM potion_table ORDER by priority asc"))
+        potions = connection.execute(sqlalchemy.text("SELECT red, green, blue, dark FROM potion_table"))
         for potion in potions:
             
             potion_type = [potion.red, potion.green, potion.blue, potion.dark]
