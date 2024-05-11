@@ -56,21 +56,53 @@ def search_orders(
     time is 5 total line items.
     """
 
-    return {
-        "previous": "",
-        "next": "",
-        "results": [
-            {
-                "line_item_id": 1,
-                "item_sku": "1 oblivion potion",
-                "customer_name": "Scaramouche",
-                "line_item_total": 50,
-                "timestamp": "2021-01-01T00:00:00Z",
-            }
-        ],
+    # Determine sorting column based on user's choice
+    if sort_col == search_sort_options.customer_name:
+        order_by = db.search_view.c.customer_name
+    elif sort_col == search_sort_options.item_sku:
+        order_by = db.search_view.c.item_sku
+    elif sort_col == search_sort_options.line_item_total:
+        order_by = db.search_view.c.quantity
+    elif sort_col == search_sort_options.timestamp:
+        order_by = db.search_view.c.created_at
+    else:
+        raise ValueError("Invalid sorting column")
+
+
+    order_by = order_by.asc() if sort_order == search_sort_order.asc else order_by.desc()
+
+    offset = 0 if not search_page else int(search_page)
+
+    stmt = sqlalchemy.select(db.search_view).order_by(order_by).limit(6).offset(5 * offset)
+
+    if customer_name:
+        stmt = stmt.where(db.search_view.c.customer_name.ilike(f"%{customer_name}%"))
+    if potion_sku:
+        stmt = stmt.where(db.search_view.c.item_sku.ilike(f"%{potion_sku}%"))
+
+    results_list = []
+    with db.engine.begin() as conn:
+        results = conn.execute(stmt)
+        for item in results:
+            results_list.append({
+                "line_item_id": item.customer_id,
+                "item_sku": item.item_sku,
+                "customer_name": item.customer_name,
+                "line_item_total": item.gold,
+                "timestamp": item.created_at,
+            })
+
+    
+    prev_link = "" if (offset - 1) < 0 else str(offset - 1)
+    next_link = str(offset + 1) if len(results_list) > 5 else ""
+
+    response = {
+        "previous": prev_link,
+        "next": next_link,
+        "results": results_list[:5]
     }
 
-
+    return response
 
 
 class Customer(BaseModel):
@@ -128,17 +160,22 @@ def checkout(cart_id: int, cart_checkout: CartCheckout):
     """ """
     r = 0
     t = 0
+    st = ''
+
+    
     with db.engine.begin() as connection:
-        num = connection.execute(sqlalchemy.text('''SELECT carts_items.quantity, price FROM carts_items
-                                                JOIN potion_table ON item_id = potion_table.id
-                                                WHERE customer_id = :cart_id
-                                                '''),[{"cart_id": cart_id}]).fetchall()
-        
-        for res in num:
-            r += res[0]*res[1]
-            t += tuple[0]
-        connection.execute(sqlalchemy.text("UPDATE global_inventory SET gold = gold + :r"),[{"r": r}])
-        connection.execute(sqlalchemy.text("UPDATE potion_table SET quantity = potion_table.quantity - carts_items.quantity FROM carts_items WHERE carts_items.id = :id AND carts_items.id = potion_table.id"),[{"id": cart_id}])
+        potions_bought = connection.execute(sqlalchemy.text("""SELECT COALESCE(SUM(cart_items.quantity),0) AS total, item_id, price, potion_name 
+                                                            FROM cart_items 
+                                                            JOIN potion_table ON potion_table.id = item_id
+                                                            WHERE customer_id = :cart_id
+                                                            GROUP BY item_id, price, potion_name"""),[{"cart_id": cart_id}]).fetchall()
+        for potion in potions_bought:   
+            t += potion.total
+            r += potion.total * potion.price
+            st += f'{potion.potion_name}, '
+            connection.execute(sqlalchemy.text("""INSERT INTO potion_ledger (potion_id, change, description) VALUES (:item_id, :total, :describe)"""),[{"item_id": potion.item_id, "total": potion.total*-1, "describe": f'sold! {cart_id}'}])
+        connection.execute(sqlalchemy.text("""INSERT INTO gold_ledger (change, description) VALUES (:revenue, :describe)"""),[{"revenue": r, "describe": f'sold {t} : {st}'}])
+
 
 
     return {"total_potions_bought": t, "total_gold_paid": r}

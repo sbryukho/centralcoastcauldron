@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from src.api import auth
 import sqlalchemy
 from src import database as db
+import math
 
 router = APIRouter(
     prefix="/barrels",
@@ -20,23 +21,42 @@ class Barrel(BaseModel):
     price: int
 
     quantity: int
+class size:
+    def __init__(self, gold: int, ml_cap: int, size: str = ''):
+        self.gold = gold
+        self.size = size
+        self.ml_cap = ml_cap
+
+
+    def quantity(self, price: int, ml_sum):
+        print(ml_sum, self.ml_cap)
+        if ml_sum > self.ml_cap:
+            return 0
+        
+        if self.size == 'SMALL' and self.gold >= price:
+            return max(1, self.gold//price)
+        elif self.size == 'MEDIUM' and self.gold >= price:
+            return max(1, self.gold//price)
+        elif self.size == 'LARGE' and self.gold >= 1.5*price:
+            return max(1, self.gold//price)
+        else: 
+            return 0
 
 @router.post("/deliver/{order_id}")
 def post_deliver_barrels(barrels_delivered: list[Barrel], order_id: int):
     """ """
     with db.engine.begin() as connection:
         for barrel in barrels_delivered:
-            connection.execute(sqlalchemy.text("UPDATE global_inventory SET gold = global_inventory.gold - :cost"), [{"cost": barrel.price * barrel.quantity}])
+            connection.execute(sqlalchemy.text("INSERT INTO gold_ledger (change, description) VALUES (:total_cost, :describe)"), [{"total_cost": barrel.quantity*barrel.price*-1, "describe": f'you bought {barrel.quantity} {barrel.sku}'}])
             potion_type = barrel.potion_type
             if potion_type == [0, 1, 0, 0]:
-                connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_green_ml = num_green_ml + {barrel.ml_per_barrel}"))
+                connection.execute(sqlalchemy.text("INSERT INTO ml_ledger (type, change) VALUES ('green', :barrel_ml)"),[{"barrel_ml": barrel.ml_per_barrel*barrel.quantity}])
             elif potion_type == [1, 0, 0, 0]:
-                connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_red_ml = num_red_ml + {barrel.ml_per_barrel}"))
+                connection.execute(sqlalchemy.text("INSERT INTO ml_ledger (type, change) VALUES ('red', :barrel_ml)"),[{"barrel_ml": barrel.ml_per_barrel*barrel.quantity}])
             elif potion_type == [0, 0, 1, 0]:
-                connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_blue_ml = num_blue_ml + {barrel.ml_per_barrel}"))
+                connection.execute(sqlalchemy.text("INSERT INTO ml_ledger (type, change) VALUES ('blue', :barrel_ml)"),[{"barrel_ml": barrel.ml_per_barrel*barrel.quantity}])
             elif potion_type == [0, 0, 0, 1]:
-                connection.execute(sqlalchemy.text(f"UPDATE global_inventory SET num_dark_ml = num_dark_ml + {barrel.ml_per_barrel}"))
-
+                connection.execute(sqlalchemy.text("INSERT INTO ml_ledger (type, change) VALUES ('dark', :barrel_ml)"),[{"barrel_ml": barrel.ml_per_barrel*barrel.quantity}])
     print(f"barrels delievered: {barrels_delivered} order_id: {order_id}")
     # if len(barrels_delivered) == 0:
     #     return "OK"
@@ -88,53 +108,58 @@ def post_deliver_barrels(barrels_delivered: list[Barrel], order_id: int):
 def get_wholesale_purchase_plan(wholesale_catalog: list[Barrel]):
     """ """
     print(wholesale_catalog)
+    cat = wholesale_catalog
     my_plan = []
 
 
     with db.engine.begin() as connection:
-        gold = connection.execute(sqlalchemy.text("SELECT num_green_ml, num_red_ml, num_blue_ml, num_dark_ml from global_inventory")).fetchall()[0]
+        ml_cap = connection.execute(sqlalchemy.select(db.capacity.c.ml)).scalar_one()
+        db_delta = connection.execute(sqlalchemy.text('''
+                                                      SELECT COALESCE(SUM(change), 0) FROM ml_ledger WHERE type = 'red' UNION ALL
+                                                      SELECT COALESCE(SUM(change), 0) FROM ml_ledger WHERE type = 'green' UNION ALL
+                                                      SELECT COALESCE(SUM(change), 0) FROM ml_ledger WHERE type = 'blue' UNION ALL
+                                                      SELECT COALESCE(SUM(change), 0) FROM ml_ledger WHERE type = 'dark'                                                     
+                                                      ''')).fetchall()
+        ml = []
+        for color in db_delta:
+            ml.append(color[0])
+        gold = connection.execute(sqlalchemy.text("SELECT COALESCE(SUM(change), 0) FROM gold_ledger")).scalar_one()
+        sized = size(gold, ml_cap)
 
-        ml = connection.execute(sqlalchemy.text("SELECT gold from global_inventory")).scalar_one()
 
-        for barrel in wholesale_catalog:
-            if barrel.sku == "SMALL_GREEN_BARREL" and ml[0] <= 200 and gold >= barrel.price:
-                my_plan.append({"sku": "SMALL_GREEN_BARREL","quantity": max(1, gold//200)})
-                gold -= barrel.price 
+        cat.sort(key=lambda x: x.ml_per_barrel, reverse=True)
+        
+        for barrel in cat:
+            sized.size = barrel.sku.split('_')[0]
+            q = sized.quantity(barrel.price, (barrel.ml_per_barrel+sum(ml)))
+            if barrel.sku == sized.size + "_RED_BARREL" and ml[0] <= 200 and q > 0:
+                print(ml, barrel.sku, barrel.price)
+                my_plan.append({"sku": barrel.sku, "quantity": min(q, barrel.quantity)}) 
+                sized.gold -= barrel.price*q
+                ml[0] += barrel.ml_per_barrel
 
 
-            elif barrel.sku == "SMALL_RED_BARREL" and ml[1] <= 200 and gold >= barrel.price:
-                my_plan.append({"sku": "SMALL_RED_BARREL","quantity": max(1, gold//200)}) 
-                gold -= barrel.price 
+            elif barrel.sku == sized.size + "_GREEN_BARREL" and ml[1] <= 200 and q > 0:
+                print(ml, barrel.sku, barrel.price)
+                my_plan.append({"sku": barrel.sku, "quantity": min(q, barrel.quantity)}) 
+                sized.gold -= barrel.price*q
+                ml[1] += barrel.ml_per_barrel
 
 
-            elif barrel.sku == "SMALL_BLUE_BARREL" and ml[2] <= 200 and gold >= barrel.price:
-                my_plan.append({"sku": "SMALL_BLUE_BARREL","quantity": max(1, gold//200)}) 
-                gold -= barrel.price 
-    # with db.engine.begin() as connection:
-    #     result = connection.execute(sqlalchemy.text("SELECT * FROM global_inventory"))
-    #     for row in result:
-    #         gold = row.gold
-    #         potions = row.num_green_potions + row.num_red_potions + row.num_blue_potions
+            elif barrel.sku == sized.size + "_BLUE_BARREL" and ml[2] <= 200 and q > 0:
+                print(ml, barrel.sku, barrel.price)
+                my_plan.append({"sku": barrel.sku, "quantity": min(q, barrel.quantity)}) 
+                sized.gold -= barrel.price*q
+                ml[2] += barrel.ml_per_barrel
 
-    # my_plan = []
-    # i = 0
 
-    # while i < len(wholesale_catalog) and gold > 0:
-    #     barrel = wholesale_catalog[i]
-    #     if barrel.sku == "SMALL_GREEN_BARREL" and potions <10 and gold >= barrel.price:
-    #         my_plan.append({
-    #             "sku": barrel.sku, "quantity": 1})
-    #         gold = gold - barrel.price
-
-    #     elif barrel.sku == "SMALL_RED_BARREL" and potions <10 and gold >= barrel.price:
-    #         my_plan.append({
-    #             "sku": barrel.sku, "quantity": 1})
-    #         gold = gold - barrel.price
-
-    #     elif barrel.sku == "SMALL_BLUE_BARREL" and potions <10 and gold >= barrel.price:
-    #         my_plan.append({
-    #             "sku": barrel.sku, "quantity": 1})
-    #         gold = gold - barrel.price
-
-    #     i += 1
+            elif barrel.sku == sized.size + "_DARK_BARREL" and ml[3] <= 200 and q > 0:
+                print(ml, barrel.sku, barrel.price)
+                my_plan.append({"sku": barrel.sku, "quantity": min(q, barrel.quantity)}) 
+                sized.gold -= barrel.price*q
+                ml[3] += barrel.ml_per_barrel
+            
     return my_plan
+
+        
+    

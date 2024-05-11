@@ -14,17 +14,13 @@ router = APIRouter(
 @router.get("/audit")
 def get_inventory():
     """ """
-    mltot = 0
+    
     """ """
     with db.engine.begin() as connection:
-        pcount = connection.execute(sqlalchemy.text("SELECT COALESCE(SUM(quantity), 0) FROM potion_table")).scalar_one()
-        color = connection.execute(sqlalchemy.text("SELECT num_red_ml, num_green_ml, num_blue_ml, num_dark_ml FROM global_inventory")).fetchall()[0]
-        for ml in color:
-            mltot += ml
+        pcount = connection.execute(sqlalchemy.text("SELECT COALESCE(SUM(change), 0) FROM potion_ledger")).scalar_one()
+        mltot = connection.execute(sqlalchemy.text("SELECT COALESCE(SUM(change),0) FROM ml_ledger")).scalar_one()
+        gold = connection.execute(sqlalchemy.text("SELECT COALESCE(SUM(change),0) FROM gold_ledger")).scalar_one()
 
-        gold = connection.execute(sqlalchemy.text("SELECT gold FROM global_inventory")).scalar_one()
-    
-    
     return {"number_of_potions": pcount, "ml_in_barrels": mltot, "gold": gold}
 
 
@@ -36,11 +32,23 @@ def get_capacity_plan():
     capacity unit costs 1000 gold.
     """
 
-    return {
-        "potion_capacity": 0,
-        "ml_capacity": 0
-        }
+    cap = 0
+    mlcap = 0
+    with db.engine.begin() as connection:
+        
+        gold = connection.execute(sqlalchemy.text("SELECT COALESCE(SUM(change),0) FROM gold_ledger")).scalar_one()
 
+    if gold >= 1000:
+        ml_cap_purchase += 1 
+        gold -= 1000*mlcap
+
+    if gold >= 1000:
+        cap += 1
+    
+    return {
+        "potion_capacity": cap,
+        "ml_capacity": mlcap
+        }
 class CapacityPurchase(BaseModel):
     potion_capacity: int
     ml_capacity: int
@@ -52,5 +60,13 @@ def deliver_capacity_plan(capacity_purchase : CapacityPurchase, order_id: int):
     Start with 1 capacity for 50 potions and 1 capacity for 10000 ml of potion. Each additional 
     capacity unit costs 1000 gold.
     """
+    with db.engine.begin() as connection:
+        if capacity_purchase.potion_capacity > 0:
+            connection.execute(sqlalchemy.insert(db.gold_ledger).values(change = (capacity_purchase.potion_capacity)*1000*-1,
+                                                                    description = "potion capacity is purchased"))
+        if capacity_purchase.ml_capacity > 0:
+            connection.execute(sqlalchemy.insert(db.gold_ledger).values(change = (capacity_purchase.ml_capacity)*1000*-1,
+                                                                    description = "ml cap purchased"))            
+
 
     return "OK"

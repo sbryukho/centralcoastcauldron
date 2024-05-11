@@ -17,34 +17,31 @@ class PotionInventory(BaseModel):
     quantity: int
 
 
-meta = sqlalchemy.MetaData()
-potion_table = sqlalchemy.Table("potion_table", meta, autoload_with= db.engine) 
-global_inventory = sqlalchemy.Table("global_inventory", meta, autoload_with= db.engine) 
+
+
 @router.post("/deliver/{order_id}")
 def post_deliver_bottles(potions_delivered: list[PotionInventory], order_id: int):
     """ """
+    colors = ['red', 'green', 'blue', 'dark']
     print(f"potions delievered: {potions_delivered} order_id: {order_id}")
 
     with db.engine.begin() as connection:
-
         for potion in potions_delivered:
-            connection.execute(sqlalchemy.text("SELECT quantity, sku FROM potion_table")).fetchall()
+            match = connection.execute(sqlalchemy.text(""" SELECT id FROM potion_table WHERE red = :red AND green = :green AND blue = :blue AND dark = :dark"""),[{"red": potion.potion_type[0],
+                                                            "green": potion.potion_type[1],
+                                                            "blue": potion.potion_type[2],
+                                                            "dark": potion.potion_type[3]}]).scalar_one()
+            connection.execute(sqlalchemy.text("""INSERT INTO potion_ledger (potion_id, change, description) 
+                                               VALUES(:match , :quantity, 'mix')"""),[{"quantity": potion.quantity, "match": match}])   
+            i = 0
+            while i < len(colors):
+                ml = potion.potion_type[i]
+                color = colors[i]
+                i += 1  
 
-            connection.execute(sqlalchemy.update(potion_table)
-                .where(
-                    potion_table.c.red == potion.potion_type[0],
-                    potion_table.c.green == potion.potion_type[1],
-                    potion_table.c.blue == potion.potion_type[2],
-                    potion_table.c.dark == potion.potion_type[3]
-                ).values(quantity =  potion_table.c.quantity + potion.quantity))
-            connection.execute(sqlalchemy.update(global_inventory)
-                .values(
-                    num_red_ml = global_inventory.c.num_red_ml - potion.potion_type[0] * potion.quantity,
-                    num_green_ml = global_inventory.c.num_green_ml - potion.potion_type[1] * potion.quantity,
-                    num_blue_ml = global_inventory.c.num_blue_ml - potion.potion_type[2] * potion.quantity,
-                    num_dark_ml = global_inventory.c.num_dark_ml - potion.potion_type[3] * potion.quantity))
-
-
+                if ml > 0:
+                    connection.execute(sqlalchemy.text("INSERT INTO ml_ledger (type, change) VALUES (:color, :ml_quantity)"),[{"color": color, "ml_quantity": ml* potion.quantity*  -1}])                                                                    
+    
 
     # with db.engine.begin() as connection:
     #     result = connection.execute(sqlalchemy.text("SELECT * FROM global_inventory"))
@@ -87,8 +84,7 @@ def get_bottle_plan():
     # Expressed in integers from 1 to 100 that must sum up to 100.
 
     # Initial logic: bottle all barrels into red potions.
-    meta = sqlalchemy.MetaData()
-    potion_table = sqlalchemy.Table("potion_table", meta, autoload_with= db.engine) 
+    my_plan = []
 
     # Each bottle has a quantity of what proportion of red, blue, and
     # green potion to add.
@@ -96,82 +92,31 @@ def get_bottle_plan():
 
     # Initial logic: bottle all barrels into red potions.
     with db.engine.begin() as connection:
-        ml = connection.execute(sqlalchemy.text("SELECT num_red_ml, num_green_ml, num_blue_ml, num_dark_ml FROM global_inventory")).fetchall()[0]
-        my_plan = []
-        qdict = {}
-        
-        potions = connection.execute(sqlalchemy.select(potion_table))
-        for row in potions:
-            qdict[row.sku] = ([row.red, row.green, row.blue, row.dark], row.quantity) 
+        db_delta = connection.execute(sqlalchemy.text('''
+                                (SELECT COALESCE(SUM(change), 0) FROM ml_ledger WHERE type = 'red') UNION ALL
+                                (SELECT COALESCE(SUM(change), 0) FROM ml_ledger WHERE type = 'green') UNION ALL
+                                (SELECT COALESCE(SUM(change), 0) FROM ml_ledger WHERE type = 'blue') UNION ALL
+                                (SELECT COALESCE(SUM(change), 0) FROM ml_ledger WHERE type = 'dark')                                
+                                ''')).fetchall()
+        ml = []
+        for color in db_delta:
+            ml.append(color[0])       
 
-        
-        # PURPLE POTION
-        if ml[0] >= 100 and ml[2] >= 100 and qdict["PURPLE_0"][1] < 5:
-            my_plan.append({
-                "potion_type": qdict["PURPLE_0"][0],
-                "quantity": 5
-            })
-
-            for i in range(len(ml)):
-                ml[i] -= qdict["PURPLE_0"][0][i] * 5
-
-
-        # AQUA(?)
-        if ml[1] >= 100 and ml[2] >= 100 and qdict["AQUA_0"][1] < 5: 
-            my_plan.append({
-                "potion_type": qdict["AQUA_0"][0],
-                "quantity": 5
-            })
-            for i in range(len(ml)):
-                ml[i] -= qdict["AQUA_0"][0][i]*5
-        # RED
-        if ml[0] >= 100 and qdict["RED_POTION_0"][1] < 5:
-            q = ml[0]//200
-            if q > 0:
-                my_plan.append({
-                    "potion_type": qdict["RED_POTION_0"][0],
-                    "quantity": q
-                })
-            for i in range(len(ml)):
-                ml[i] -= qdict["RED_POTION_0"][0][i]*5
-        # GREEN
-        if ml[1] >= 100 and qdict["GREEN_POTION_0"][1] < 5:
-            q = ml[1]//200
-
-            if q > 0: 
-                my_plan.append({
-                    "potion_type": qdict["GREEN_POTION_0"][0],
-                    "quantity": q
-                })
-            for i in range(len(ml)):
-                ml[i] -= qdict["GREEN_POTION_0"][0][i]*5
-        # BLUEE
-        if ml[2] >= 100 and qdict["BLUE_POTION_0"][1] < 5:
-            q = ml[2]//200
-
-
-            if q > 0:
-                my_plan.append({
-                    "potion_type": qdict["BLUE_POTION_0"][0],
-                    "quantity": q
-                })
-            for i in range(len(ml)):
-                ml[i] -= qdict["BLUE_POTION_0"][0][i]*5
-        
+        potions = connection.execute(sqlalchemy.text("SELECT red, green, blue, dark FROM potion_table ORDER by priority asc"))
+        for potion in potions:
+            
+            potion_type = [potion.red, potion.green, potion.blue, potion.dark]
+            if all([m >= t for m,t in ml]):
+                
+                q = ml//(potion_type)
+                if q != 0:
+                    my_plan.append({
+                        "potion_type": potion_type,
+                        "quantity": q
+                    })
+                    ml = [m - p*q for m, p in zip(ml, potion_type)]
+                    print(ml)
     return my_plan
-    # my_plan = []
-
-    # with db.engine.begin() as connection:
-    #     result = connection.execute(sqlalchemy.text("SELECT * FROM global_inventory"))
-    #     for row in result:
-    #         math = [row.num_red_ml // 100, row.num_green_ml // 100, row.num_blue_ml // 100]
-    #     for i in range(3):
-    #         if math[i] >0:
-    #             type = [0,0,0,0]
-    #             type[i] += 100
-    #             my_plan.append({"potion_type": type, "quantity": math[i]})
-
-    # return my_plan
 
 if __name__ == "__main__":
     print(get_bottle_plan())

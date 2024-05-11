@@ -11,15 +11,20 @@ def get_catalog():
     Each unique item combination must have only a single price.
     """
     with db.engine.begin() as connection:
-        result = connection.execute(sqlalchemy.text("""SELECT * FROM potion_table WHERE quantity > 0 ORDER BY quantity DESC"""))
+        in_stock = connection.execute(sqlalchemy.text("""SELECT sku, potion_name, price, red, green, blue, dark, COALESCE(SUM(change),0) AS total
+                                                      FROM potion_table
+                                                      JOIN potion_ledger ON potion_table.id = potion_id
+                                                      GROUP BY sku, price, potion_name, red, green, dark, blue
+                                                      """))
 
-    catalog = []
-    for i in range(6):
-        row = result.fetchone()
-        if row is None:
-            break 
-        catalog.append({"sku": row.sku, "name": row.potion_name, "quantity": row.quantity,
-                        "price": row.price, "potion_type":[row.red, row.green, row.blue, row.dark] })
+        catalog = []
+    for row in in_stock:
+        if row.total != 0:
+            catalog.append({"sku": row.sku,"name": row.potion_name, "quantity": row.total,"price": row.price, "potion_type": [row.red,
+                                        row.green,
+                                        row.blue,
+                                        row.dark]
+                    })   
     #prices = {"GREEN_POTION_0": 5, "RED_POTION_0": 5, "BLUE_POTION_0": 5}
 
     #potion_skus = ["RED_POTION_0", "GREEN_POTION_0", "BLUE_POTION_0"]
